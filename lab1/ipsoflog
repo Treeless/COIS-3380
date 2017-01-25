@@ -1,0 +1,58 @@
+#!/bin/bash
+
+#---------------------------------------
+# Ips of log
+#
+# Name: ipsoflog
+#
+# Written by: Matthew Rowlandson - January 2017
+#
+# Usage: ./ipsoflog <logfile> <optional search filter>
+#       eg. ./ipsoflog /home/common/warn "authentication failure"W
+#
+# Description: Outputs the top 10 ips of the log and their locations based on the search criteria given
+#
+#----------------------------------------
+
+# Set the variables to use in the script
+LOGFILE=$1
+if [ -z "$2" ]; then
+   SEARCH=$2
+else
+   SEARCH="Authentication failure"
+fi
+
+# IP address regular expression
+REGEX='[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}'
+
+#Get all the IPS with that search criteria
+grep $SEARCH $LOGFILE | grep -o $REGEX $LOGFILE | sort | uniq -c | sort -nr | head -10 | sort > /tmp/top10ips
+
+#PARSE TOP 10 IPS From File and find their locations
+mkdir -p /tmp/ipswithloc
+awk '{print $1, $2}' /tmp/top10ips | while read o i; do
+rm -f /tmp/ipswithloc/$i.txt;
+sleep .25; #Don't make too many requests, too quickly
+wget -O /tmp/ipswithloc/$i.txt -t 1 http://ipinfo.io/$i 2> /dev/null;
+mkdir -p /tmp/finalips;
+rm -f /tmp/finalips/$i.txt;
+echo -n $o >> /tmp/finalips/$i.txt;
+echo -n " " >> /tmp/finalips/$i.txt;
+echo -n $i >> /tmp/finalips/$i.txt;
+echo -n " " >> /tmp/finalips/$i.txt;
+grep -m 1 country /tmp/ipswithloc/$i.txt | sed -r 's/^ *//;s/.*: *"//;s/",?//' | tr -d '\012\015'| tr -d '[:space:]' >> /tmp/finalips/$i.txt; 
+echo -n " " >> /tmp/finalips/$i.txt; 
+grep -m 1 city /tmp/ipswithloc/$i.txt | sed -r 's/^ *//;s/.*: *"//;s/",?//' | tr -d '\012\015'| tr -d '[:space:]' >> /tmp/finalips/$i.txt;
+done
+
+#CONCAT ALL FILES INTO ONE FILE
+rm -f "/tmp/finaliplist";
+for file in /tmp/finalips/*; do
+  if [[ $file =~ .*\.txt$ ]]; then
+    echo $(cat $file) >> /tmp/finaliplist;
+  fi
+done
+
+# sort that file and output
+echo "Occurences IpAddress Country City";
+cat /tmp/finaliplist | sort -bnr;
