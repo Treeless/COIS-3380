@@ -38,7 +38,6 @@ int hasArg(const char arg[], int *argc, char* argv[]){
   int paramCounter = 1;
   while(paramCounter < *argc){
     //Check as an individual params: eg. -t -Y -t -f
-    printf("%s : %s = %d \n", argv[paramCounter], arg, strcmp(argv[paramCounter], arg));
     if(strcmp(argv[paramCounter], arg) == 0) {
       return TRUE;
     } else {
@@ -47,16 +46,7 @@ int hasArg(const char arg[], int *argc, char* argv[]){
         int innerCount = 1;
         int strLength = strlen(argv[paramCounter]);
         while(innerCount < strLength){
-          char actualArg[2];
-          actualArg[0] = '-';
-          actualArg[1] = '\0';
-          char foo[2];
-          foo[0] = argv[paramCounter][innerCount];
-          foo[1] = '\0';
-
-          strcat(actualArg, foo); //merge eg 'Y' -> '-Y'
-          printf("actual arg: %s. compared to arg: %s. Compared: %d \n", actualArg, arg, strcmp(actualArg, arg));
-
+          char* actualArg = (char[3]){'-', argv[paramCounter][innerCount], '\0'};
           if(strcmp(actualArg, arg) == 0) { 
             return TRUE;
           }
