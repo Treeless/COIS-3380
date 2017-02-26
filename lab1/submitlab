@@ -1,0 +1,18 @@
+#!/bin/bash
+
+#---------------------------------------------------------
+# Assignment Submission Tool
+#
+# Name: submitzip
+#
+# Written by: Matthew Rowlandson - January 2017
+#
+# Purpose: Zips up the specified lab directory for submission
+#
+# Usage: ./submitzip <labname>
+#	eg ./submitzip lab1
+#----------------------------------------------------------
+FirstName=matthew
+LastName=rowlandson
+
+zip -r $HOME/$LastName"_"$FirstName"_"$1.zip $HOME/$1
