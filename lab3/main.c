@@ -35,7 +35,6 @@
 #include <string.h> /* Commonly used string-handling functions */
 #include <sys/stat.h> /* Functions to access detailed information for files*/
 #include <getopt.h> /* getopt */
-#include <sys/stat.h> /* Functions to get file information */
 #include <time.h> /* Time library */
 
 //Allow use of booleans :D
@@ -52,40 +51,82 @@ struct Arguments {
 
 //# Prototypes
 void grabArgs( int argc, char *argv[], struct Arguments *args );
-void displayStatInfo(struct stat *sb, char* filename, int sinceDays, int beforeDays);
-char* getFiletype(const struct stat *sb);
-char* getFilePermissions(const struct stat *sb);
-int numberOfDays(int numSeconds);
+void displayStatInfo(struct stat sb, char* filename);
+char* getFiletype(struct stat sb);
+char* getFilePermissions(struct stat sb);
+char* formatDate(char* str, time_t val);
 
 //# Functions
 
 //main function of the program
 int main( int argc, char *argv[] ) {
-  DIR *dirp;                                           // pointer to a directory type
-  struct dirent *dp;                                   // structure of a directory entry
-
   struct Arguments args;                               // eg args (-b 1 -s 0 [directoryPath])
   grabArgs(argc, argv, &args);                         //Get the arguments and feed them into our struct
 
+  //ARGs from grab args
+  strcat(args.directoryPath, "/"); //Add in / onto directory path if not there...
+  int beforeDays = args.bVal;
+  int sinceDays = args.sVal;
+
+  DIR *dirp;                                             // pointer to a directory type
+  struct dirent *dp;                                     // structure of a directory entry
   dirp = opendir(args.directoryPath);                    // open the directory
   if (dirp == NULL) {                                    // oops open failed... bail !
    printf("opendir failed on '%s'\n", args.directoryPath);
    return;
   }
 
-  printf("Directory: %s/ \n", args.directoryPath);
-  printf("%-14s%-17s%-5s%-5s%-5s%-10s%-18s%-10s\n", "Permissions", "inode", "Type", "UID", "GID", "ByteSize", "Filename", "Modification date");
-  //For each file
-  for (;;) {
-    dp = readdir(dirp);
-    if (dp == NULL) break;                                // reached the end of the directory
+  printf("%-14s%-6s%-5s%-5s%-5s%-10s%-35s%-10s\n", "Permissions", "inode", "Type", "UID", "GID", "ByteSize", "Filename", "Mod date");
 
+  struct stat file_status;
+  while ((dp = readdir(dirp)) != NULL) {                                 
+    if (dp == NULL) break;                                               // reached the end of the directory
     if (strcmp(dp->d_name, ".") == 0 || strcmp(dp->d_name, "..") == 0) continue; /* Skip . and .. */
+    //Get file information for the specified file
 
-    struct stat file_status;
-    stat(dp->d_name, &file_status);
-    //Display the stats
-    displayStatInfo( &file_status, dp->d_name, args.sVal, args.bVal);
+    char file[PATH_MAX+1];
+    strcpy(file, args.directoryPath);
+    strcat(file, dp->d_name);
+
+    //READ THE FILES STATUS INFORMATION (IF VALID)
+    if(stat(file, &file_status) == 0){
+        //Check that the file is not older then the specified number of days or newer then the specified number of days
+        if(beforeDays || sinceDays) {
+          //bVal = age of oldest files to display BEFORE.
+          //sVal = age of newest files to display SINCE.
+          if(beforeDays) {
+            //Display files from BEFORE beforeDays ago.
+            time_t currentTime = time(0);
+
+            char date[40];
+            //Are the number of seconds greater then number of days to seconds?
+            double diff = difftime(currentTime, file_status.st_mtime);
+            int days = diff/24/3600;
+            if(days < beforeDays){
+              //DONT SHOW. TOO OLD
+              continue;
+            }
+          }
+          if(sinceDays) {
+            //Display files from AFTER sinceDays ago.
+            time_t currentTime = time(0);
+
+            char date[40];
+            //Are the number of seconds greater then number of days to seconds?
+            double diff = difftime(currentTime, file_status.st_mtime);
+            int days = diff/24/3600;
+            if(days > sinceDays){
+              //DONT SHOW. TOO NEW
+              continue;
+            }
+          }
+        }
+
+        //Get the file status information
+        displayStatInfo(file_status, dp->d_name);
+    } else {
+      printf("INVALID FILE PATH: %s", file);
+    }
   }
 
   closedir(dirp);                                       // play nice and close the directory
@@ -126,70 +167,25 @@ void grabArgs(int argc, char *argv[], struct Arguments *args) {
 
 //Display file information for the specified file
 // Params: a stat structure returned by the stat() system call. see sys/stat.h for details on the field(s) and what they contain.
-void displayStatInfo(struct stat *sb, char* filename, int sinceDays, int beforeDays){
-  //Check the params
-  //Check that the file is not older then the specified number of days or newer then the specified number of days
-  if(beforeDays || sinceDays) {
-    //bVal = age of oldest files to display BEFORE.
-    //sVal = age of newest files to display SINCE.
-    if(beforeDays){
-      //list all files whose modification timestamp is at least 7 days older than the current system time
-      time_t modtime = sb->st_mtime;
-      localtime(&modtime); 
-      //TODO THIS modtime NOT THE RIGHT DATE. WTF IS THIS SHIT. eg. Tue May 25 08:24:03 4434804 ????
-
-      //Trying it a different way. Still not working. Date has wrong year and is a few days less then actual date..
-      time_t t = sb->st_mtime;
-      struct tm lt;
-      localtime_r(&t, &lt);
-      char timbuf[80];
-      strftime(timbuf, sizeof(timbuf), "%c", &lt);
-      //
-
-      printf("PROPER DATE? %s", timbuf );
-
-      //Current time
-      time_t currentTime;
-      time(&currentTime);
-
-      //current time minus days
-      double seconds = difftime(currentTime, modtime);
-      double diff = numberOfDays(seconds);
-
-      //Are the number of seconds greater then number of days to seconds? 
-      printf("Mod time: %s \n", ctime(&modtime));
-      printf("current time: %s \n", ctime(&currentTime));
-      printf("SECONDS DIFF: %d \n", seconds);
-      printf("Difference in days: %d \n\n", diff);
-    }
-    if(sinceDays){
-      //list all files that have been modified since `sVal` days from the current system time. 
-
-    }
-
-
-    //Do checks here on the modification date
-    //TODO
-  }
-
-  // char* filetype = getFiletype(sb);
-  // char* permissions = getFilePermissions(sb);
-  // //printf("permissions   inode  Type  UID  GID  ByteSize  Filename   Modification date \n");
-  // printf("%-14s", permissions); //File permissions
-  // printf("%-17ld", (long) sb->st_ino); // print the file's inode info
-  // printf("%-5s", filetype); //Prints the file's filetype
-  // printf("%-5ld", (long) sb->st_uid); //print the files owner user id
-  // printf("%-5ld", (long) sb->st_gid); //print the files owner group id
-  // printf("%-10lld", (long long) sb->st_size); // print the file size
-  // printf("%18s", filename); //Name of the file
-  // printf("%-10s", ctime(&sb->st_mtime)); // last modified time
+void displayStatInfo(struct stat sb, char* filename){
+  char* filetype = getFiletype(sb);
+  char* permissions = getFilePermissions(sb); //TODO
+  //printf("permissions   inode  Type  UID  GID  ByteSize  Filename   Modification date \n");
+  printf("%-14s", permissions); //File permissions
+  printf("%-6ld", (long) sb.st_ino); // print the file's inode info
+  printf("%-5s", filetype); //Prints the file's filetype
+  printf("%-5ld", (long) sb.st_uid); //print the files owner user id
+  printf("%-5ld", (long) sb.st_gid); //print the files owner group id
+  printf("%-10lld", (long long) sb.st_size); // print the file size
+  printf("%-35s", filename); //Name of the file
+  printf("%-10s", ctime(&sb.st_mtime)); // last modified time
 }
 
 //Parses out and returns the filetype of the given stat reference via short form for display
-char* getFiletype(const struct stat *sb){
+char* getFiletype(struct stat sb){
   char* filetype;
 
-  switch (sb->st_mode & S_IFMT) // parse out the file type
+  switch (sb.st_mode & S_IFMT) // parse out the file type
   {
     case S_IFREG:
       filetype = "REG";
@@ -223,64 +219,24 @@ char* getFiletype(const struct stat *sb){
 //TODO Might not get to this. But its not required by the assignment
 //Parses out and returns the permissions of the given stat reference.
 //Ref: http://pubs.opengroup.org/onlinepubs/7908799/xsh/sysstat.h.html
-char* getFilePermissions(const struct stat *sb){
-  char* permissions = "---";
-  //S_IRWXU read, write, execute/search by owner
-  switch(sb->st_mode & S_IRWXU){
-    case(S_IRUSR):
-      //read permission, owner
-    break;
-    case(S_IWUSR):
-      //write permission, owner
-    break;
-    case(S_IXUSR):
-      //execute/search permission, owner
-    break;
-    case(S_IRWXG):
-      //read, write, execute/search by group
-    break;
-    case(S_IRGRP):
-      //read permission, group
-    break;
-    case(S_IWGRP):
-      //write permission, group
-    break;
-    case(S_IXGRP):
-      //execute/search permission, group
-    break;
-    case(S_IRWXO):
-      //read, write, execute/search by others
-    break;
-    case(S_IROTH):
-      //read permission, others
-    break;
-    case(S_IWOTH):
-      //write permission, others
-    break;
-    case(S_IXOTH):
-      //execute/search permission, others
-    break;
-    case(S_ISUID):
-      //set-user-ID on execution
-    break;
-    case(S_ISGID):
-      //set-group-ID on execution
-    break;
-    case(S_ISVTX):
-      //on directories, restricted deletion flag
-    break;
-    default:
-    break;
-  }
+char* getFilePermissions(struct stat sb){
+  char* permissions = "";
+  return permissions;
+  printf((S_ISDIR(sb.st_mode))  ? "d" : "-");
+  printf((sb.st_mode & S_IRUSR) ? "r" : "-");
+  printf((sb.st_mode & S_IWUSR) ? "w" : "-");
+  printf((sb.st_mode & S_IXUSR) ? "x" : "-");
+  printf((sb.st_mode & S_IRGRP) ? "r" : "-");
+  printf((sb.st_mode & S_IWGRP) ? "w" : "-");
+  printf((sb.st_mode & S_IXGRP) ? "x" : "-");
+  printf((sb.st_mode & S_IROTH) ? "r" : "-");
+  printf((sb.st_mode & S_IWOTH) ? "w" : "-");
+  printf((sb.st_mode & S_IXOTH) ? "x" : "-");
 
   return permissions;
 }
 
-//return number of days based on the seconds given
-//ref: http://stackoverflow.com/questions/2419562/convert-seconds-to-days-minutes-and-seconds
-int numberOfDays(int numSeconds) {
-  const int cseconds_in_day = 86400;
-  int days = numSeconds / cseconds_in_day;
-
-  return days;
+char* formatDate(char* str, time_t val){
+  strftime(str, 40, "%d.%m.%Y %H:%M:%S", localtime(&val));
+  return str;
 }
