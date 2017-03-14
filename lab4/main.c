@@ -69,7 +69,7 @@ int main(int *argc, char *args[]) {
       char filepath[1024]; //temp path
       getcwd(filepath, sizeof(filepath)); //Get the current working directory
       strcat(filepath, "/lab4_file_copy"); //Tack on the filename
-      int fd = open(cwd, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH); //open the file. O_RDWR = read and write flag, O_CREAT = create if doesnt exist, S_* flags are permission flags from fstat 
+      int fd = open(filepath, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH); //open the file. O_RDWR = read and write flag, O_CREAT = create if doesnt exist, S_* flags are permission flags from fstat 
       write(fd, buffer, strlen(buffer)); //write to the file
 
       close(fd_in);//close file we were reading
@@ -99,9 +99,7 @@ int main(int *argc, char *args[]) {
     } else {
       //Output the granchild pid
       printf("FC: I am the first child, grandchild has pid %d\n", pidgc);
-
       int grandchildStatus;
-
       //Wait for grandchild process to be done. Polling...
       while((waitpid(pidgc, &grandchildStatus, WNOHANG)) != pidgc){
         printf("FC: Try again\n");
