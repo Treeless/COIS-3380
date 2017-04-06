@@ -20,7 +20,7 @@ typedef enum { false = 0, true = !false } bool;
 
 #define SERVER_ADDRESS      "127.0.0.1" //localhost (where the server socket to connect to is)
 #define PORT_NUM             25328 //Our unique port
-#define OUTPUT_FILENAME      "lab_sourcefile_local_clone" //hardcoded //TODO make this based off argument filename
+#define OUTPUT_FILENAME      "lab_sourcefile_local_clone" //hardcoded [oh well :3]
 
 //Struct for our arguments
 struct Arguments {
@@ -40,14 +40,15 @@ int main(int argc, char *argv[]) {
   char buffer[BUFSIZ]; //Create our buffer (with size of built in constant BUFSIZ from stdio.h. Usually 4096? But depends on the system)
   int remainingData = 0; //The data left to write
   ssize_t len; //length of the chunk of data we just recieved
+  char fileSizeBuffer[BUFSIZ]; // buffer for the file size retrieved from server
 
 
   struct Arguments args; //Create the struct to hold our arguments {f: bool, filepath: char* }                             
   grabArgs(argc, argv, &args); //Grab the arguments that were given on the command line. Passes in our struct `args` to be populated.
 
-  //Check that we got the proper val
+  //Check that we got our filepath
   if(args.f == false){
-    error("grabArgs", "Missing -f filename");
+    error("grabArgs", "Missing -f <filename>");
     return -1;
   }
 
@@ -71,42 +72,37 @@ int main(int argc, char *argv[]) {
   }
 
   //Send message to server asking for the specific filepath
-  fprintf(stdout, "sending %s as file path. String size: %d ... \n", args.filepath, strlen(args.filepath));
+  fprintf(stdout, "Client: sending %s as file path. String size: %d ... \n", args.filepath, strlen(args.filepath));
   if (send(clientSocket, args.filepath, strlen(args.filepath), 0) < 0) {
     error("send filepath", "Could not send the filepath... ");
   }
 
   //Recieve the file information (size)
-  recv(clientSocket, buffer, BUFSIZ, 0);
-  printf("Client: Expecting filesize of %s \n", buffer);
+  recv(clientSocket, fileSizeBuffer, BUFSIZ, 0);
+  printf("Client: Expecting filesize of %s \n", fileSizeBuffer);
 
-  //Open the file to write the file output to
-  FILE *receivedFile = fopen(OUTPUT_FILENAME, "w");
+  //Open the file to write the file output to (create file if it doesnt exist)
+  FILE *receivedFile = fopen(OUTPUT_FILENAME, "ab+");
   if (receivedFile == NULL) {
     error("Open File", "Issue opening file to write to...");
   }
 
-  remainingData = atoi(buffer); //Set total file size
+  remainingData = atoi(fileSizeBuffer); //Set total file size
 
   //Recieve each chunk of the file and while we still have data remaining. Write it to the file
-  while ((remainingData > 0) && ((len = recv(clientSocket, buffer, BUFSIZ, 0)) > 0)){
+  while ( (remainingData > 0) && ((len = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0)){
     fwrite(buffer, sizeof(char), len, receivedFile);
     remainingData -= len;
     if(remainingData > 0){
       fprintf(stdout, "Client: Received %d bytes and waiting for:- %d bytes\n", len, remainingData);
     } else {
-      fprintf(stdout, "Client: Recieved %d bytes. Done recieving data from server.\n", remainingData);
+      fprintf(stdout, "Client: Recieved %d bytes. Done recieving data from server.\n", len);
+      break;
     }
   }
 
   fprintf(stdout, "Client: Done writing data from server to file...\n" );
   fclose(receivedFile); //Close the file we wrote to
-
-  //Send message to server to terminate
-  char *terminateMessage = "TERM";
-  if (send(clientSocket, terminateMessage, strlen(terminateMessage), 0) < 0) {
-    error("send termination message...", "Could not send the terminateMessage to server... ");
-  }
   close(clientSocket); //Close the socket. We are done
 
   return 0; //done

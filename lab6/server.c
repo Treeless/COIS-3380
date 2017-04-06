@@ -1,129 +1,129 @@
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/sendfile.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <netinet/in.h>
-#include <sys/stat.h>
+/*
+    Author: Matthew Rowlandson
+    Date: 2017-04-04
+    Purpose: Server side code for recieving a file name, and passing the file data over to connected clients via a socket.
+    Compiler: gcc o -s server.c
+    Running: ./s& //Runs as a process, independent from the console
+*/
+
+#include <stdio.h> //standard io lib
+#include <sys/types.h> //types lib 
+#include <sys/socket.h> //socket lib
+#include <stdlib.h> // standard lib
+#include <errno.h> //error number library
+#include <fcntl.h> // file control library
+#include <sys/sendfile.h> // send file library
+#include <string.h> //string lib
+#include <arpa/inet.h> // ipaddress library
+#include <unistd.h> // POSIX operating system API
+#include <netinet/in.h> //another network library
+#include <sys/stat.h> // file stat library (for accessing file information)
 
 #define SERVER_ADDRESS      "127.0.0.1" //localhost (where this server's IP is)
 #define PORT_NUM             25328 //Our unique port
+#define BLOCK_SIZE           512 //number of bytes per iteration
 
 //Prototypes
 int error(char* where, char* msg);
 
 int main(int argc, char *argv[]) {
-  int server_socket;
-  int peer_socket;
-  socklen_t       sock_len;
-  ssize_t len;
-  struct sockaddr_in      server_addr;
-  struct sockaddr_in      peer_addr;
-  int fd;
-  int sent_bytes = 0;
-  char file_size[256];
-  struct stat file_stat;
+  //Main vars
+  //  Socket vars
+  int serverSocket; //the server socket
+  int peerSocket; // the peer socket (currently connected client)
+  socklen_t socketLength; //number of connections
+  struct sockaddr_in serverAddress; //server socket address
+  struct sockaddr_in peerAddress; //connected client socket address
+
+  //program vars
+  ssize_t len; //length of the packet data being sent to the connected client
+  int fd; //File descriptor
+  int sentBytes = 0; //number of bytes being sent
+  char fileSize[256]; //Size of the file
+  struct stat fileStat; //file information
   off_t offset; //file offset
-  int remain_data;
+  int remainingData; //data left to send to client
 
-  /* Create server socket */
-  server_socket = socket(AF_INET, SOCK_STREAM, 0);
-  if (server_socket == -1) {
-    fprintf(stderr, "Error creating socket --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
+  //Create the server socket
+  serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+  if (serverSocket == -1) {
+    error("Socket Creation", "Error creating socket");
   }
 
-  /* Zeroing server_addr struct */
-  memset(&server_addr, 0, sizeof(server_addr));
-  /* Construct server_addr struct */
-  server_addr.sin_family = AF_INET;
-  inet_pton(AF_INET, SERVER_ADDRESS, &(server_addr.sin_addr));
-  server_addr.sin_port = htons(PORT_NUM);
+  //Setup the server address
+  memset(&serverAddress, 0, sizeof(serverAddress)); //Set the memory for the server address
+  serverAddress.sin_family = AF_INET; //type of address
+  inet_pton(AF_INET, SERVER_ADDRESS, &(serverAddress.sin_addr)); // Setup the ipaddress
+  serverAddress.sin_port = htons(PORT_NUM); //Add in the port number
 
-  /* Bind */
-  if ((bind(server_socket, (struct sockaddr *)&server_addr, sizeof(struct sockaddr))) == -1) {
-    fprintf(stderr, "Error on bind --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
+  //Bind the server socket to the server address
+  if ((bind(serverSocket, (struct sockaddr *)&serverAddress, sizeof(struct sockaddr))) == -1) {
+    error("Socket Bind", "Error on bind");
   }
 
-  /* Listening to incoming connections */
-  if ((listen(server_socket, 5)) == -1) {
-    fprintf(stderr, "Error on listen --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
+  //Listen on the server socket for up to 5 incoming connections
+  if ((listen(serverSocket, 5)) == -1) {
+    error("Socket Listen", "Error on listen");
   }
 
-  sock_len = sizeof(struct sockaddr_in);
-  /* Accepting incoming peers */
-  peer_socket = accept(server_socket, (struct sockaddr *)&peer_addr, &sock_len);
-  if (peer_socket == -1) {
-    fprintf(stderr, "Error on accept --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
+  //Loop
+  while(1) {
+    socketLength = sizeof(struct sockaddr_in);
+    //Accept a client connection
+    peerSocket = accept(serverSocket, (struct sockaddr *)&peerAddress, &socketLength);
+    if (peerSocket == -1) {
+      error("Socket Accept", "Error on accept");
+    }
+    fprintf(stdout, "Server: Accepted connection --> %s\n", inet_ntoa(peerAddress.sin_addr));
+
+    //Start of filepath recieve
+    char filepathBuffer[BUFSIZ];
+    int filePathlength = recv(peerSocket, filepathBuffer, BUFSIZ, 0); //Recieve the filepath from the client
+    if(filePathlength < 0){
+      error("Missing Filepath", "No file path recieved from client...");
+    } else {
+      fprintf(stdout, "Server: File to retrieve for client: %s \n", filepathBuffer);
+    }
+    //Done recieving file path
+
+    //Open the requested file
+    fd = open(filepathBuffer, O_RDONLY);
+    if (fd == -1) {
+      error("File Open", "Error opening file");
+    }
+
+    //Get the file size of the requested file
+    if (fstat(fd, &fileStat) < 0) {
+      error("File Stat", "Error on filestat");
+    }
+
+    fprintf(stdout, "Server: File Size: %d bytes\n", fileStat.st_size);
+    sprintf(fileSize, "%d", fileStat.st_size); //copy over the filesize value
+
+    //Sending file size to client to give them the full size to expect
+    len = send(peerSocket, fileSize, sizeof(fileSize), 0);
+    if (len < 0) {
+      error("File Send", "Error on sending file");
+    }
+
+    offset = 0; //fileoffset
+    remainingData = fileStat.st_size; //remaining file data to send (size of file)
+    //Send the file data in packets of BUFSIZE
+    int dataSizeToSend = BLOCK_SIZE; // 256
+    while (remainingData > 0) {
+      sentBytes = sendfile(peerSocket, fd, &offset, dataSizeToSend);
+
+      fprintf(stdout, "Server: sent %d bytes from file's data, offset is now : %d and remaining data = %d\n", sentBytes, offset, remainingData);
+      remainingData -= sentBytes;
+      //If the size of the data block is too large. Make it smaller for the last bit of data
+      if(remainingData < dataSizeToSend) {
+        printf("New data size to send: %d \n", dataSizeToSend);
+        dataSizeToSend = remainingData;
+      }
+    }
+
+    printf("Server: Done sending data... \n");
   }
-  fprintf(stdout, "Accepted connection --> %s\n", inet_ntoa(peer_addr.sin_addr));
-
-  //Start of filepath recieve
-  char filepathBuffer[BUFSIZ];
-  int filePathlength = recv(peer_socket, filepathBuffer, BUFSIZ, 0); //Recieve the filepath from the client
-  if(filePathlength < 0){
-    fprintf(stderr, "No file path recieved from client...");
-    exit(EXIT_FAILURE);
-  } else {
-    fprintf(stdout, "File to retrieve for client: %s \n", filepathBuffer);
-  }
-  //Done recieving file path
-
-  //Open the requested file
-  fd = open(filepathBuffer, O_RDONLY);
-  if (fd == -1) {
-    fprintf(stderr, "Error opening file --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-
-  /* Get file stats */
-  if (fstat(fd, &file_stat) < 0) {
-    fprintf(stderr, "Error fstat --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-
-  fprintf(stdout, "File Size: \n%d bytes\n", file_stat.st_size);
-
-  sprintf(file_size, "%d", file_stat.st_size);
-
-  /* Sending file size to client to give them the full size to expect */
-  len = send(peer_socket, file_size, sizeof(file_size), 0);
-  if (len < 0) {
-    fprintf(stderr, "Error on sending file --> %s", strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-
-  offset = 0;
-  remain_data = file_stat.st_size;
-  /* Sending file data */
-  while (((sent_bytes = sendfile(peer_socket, fd, &offset, BUFSIZ)) > 0) && (remain_data > 0)) {
-    fprintf(stdout, "1. Server sent %d bytes from file's data, offset is now : %d and remaining data = %d\n", sent_bytes, offset, remain_data);
-    remain_data -= sent_bytes;
-    fprintf(stdout, "2. Server sent %d bytes from file's data, offset is now : %d and remaining data = %d\n", sent_bytes, offset, remain_data);
-  }
-
-  printf("Server done sending data... \n");
-
-  //Recieve the termination message from client
-  char terminationMessage[4];
-  int termRecieved = recv(peer_socket, terminationMessage, 4, 0); //Recieve the termination message from client
-  if(termRecieved > 0){
-    printf("Server: Recieved Termination message (%s) from client. Terminating server ... \n", terminationMessage);
-    close(peer_socket);
-    close(server_socket);
-  }else {
-    printf("Issue recieving termination message... (%d) \n", strcmp(terminationMessage, "TERM"));
-  }
-
-  return 0;
 }
 
 //Our error function for formatting our errors to be consistant accross the board. (copied from client script)
