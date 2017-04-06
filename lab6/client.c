@@ -20,7 +20,7 @@ typedef enum { false = 0, true = !false } bool;
 
 #define SERVER_ADDRESS      "127.0.0.1" //localhost (where the server socket to connect to is)
 #define PORT_NUM             25328 //Our unique port
-#define OUTPUT_FILENAME      "outputfile"
+#define OUTPUT_FILENAME      "lab_sourcefile_local_clone" //hardcoded //TODO make this based off argument filename
 
 //Struct for our arguments
 struct Arguments {
@@ -37,9 +37,9 @@ int main(int argc, char *argv[]) {
   //PROGRAM MAIN VARS
   int clientSocket; //client side socket 
   struct sockaddr_in remote_addr; //struct type of sockaddr_in
-  char buffer[BUFSIZ]; //Create our buffer (with size of built in constant BUFSIZ from stdio.h. Usually 4096? But depends apparently)
+  char buffer[BUFSIZ]; //Create our buffer (with size of built in constant BUFSIZ from stdio.h. Usually 4096? But depends on the system)
   int remainingData = 0; //The data left to write
-  ssize_t len; //length of the data we just recieved
+  ssize_t len; //length of the chunk of data we just recieved
 
 
   struct Arguments args; //Create the struct to hold our arguments {f: bool, filepath: char* }                             
@@ -70,11 +70,15 @@ int main(int argc, char *argv[]) {
     error("Socket Connect", "Error connecting to server...");
   }
 
-  //Send message to server asking for the file
-  send(clientSocket, args.filepath, sizeof(args.filepath), 0);
+  //Send message to server asking for the specific filepath
+  fprintf(stdout, "sending %s as file path. String size: %d ... \n", args.filepath, strlen(args.filepath));
+  if (send(clientSocket, args.filepath, strlen(args.filepath), 0) < 0) {
+    error("send filepath", "Could not send the filepath... ");
+  }
 
   //Recieve the file information (size)
   recv(clientSocket, buffer, BUFSIZ, 0);
+  printf("Client: Expecting filesize of %s \n", buffer);
 
   //Open the file to write the file output to
   FILE *receivedFile = fopen(OUTPUT_FILENAME, "w");
@@ -85,12 +89,24 @@ int main(int argc, char *argv[]) {
   remainingData = atoi(buffer); //Set total file size
 
   //Recieve each chunk of the file and while we still have data remaining. Write it to the file
-  while (((len = recv(clientSocket, buffer, BUFSIZ, 0)) > 0) && (remainingData > 0)){
+  while ((remainingData > 0) && ((len = recv(clientSocket, buffer, BUFSIZ, 0)) > 0)){
     fwrite(buffer, sizeof(char), len, receivedFile);
     remainingData -= len;
-    fprintf(stdout, "Receive %d bytes and we hope :- %d bytes\n", len, remainingData);
+    if(remainingData > 0){
+      fprintf(stdout, "Client: Received %d bytes and waiting for:- %d bytes\n", len, remainingData);
+    } else {
+      fprintf(stdout, "Client: Recieved %d bytes. Done recieving data from server.\n", remainingData);
+    }
   }
+
+  fprintf(stdout, "Client: Done writing data from server to file...\n" );
   fclose(receivedFile); //Close the file we wrote to
+
+  //Send message to server to terminate
+  char *terminateMessage = "TERM";
+  if (send(clientSocket, terminateMessage, strlen(terminateMessage), 0) < 0) {
+    error("send termination message...", "Could not send the terminateMessage to server... ");
+  }
   close(clientSocket); //Close the socket. We are done
 
   return 0; //done
@@ -98,7 +114,7 @@ int main(int argc, char *argv[]) {
 
 //Our error function for formatting our errors to be consistant accross the board.
 int error(char* where, char* msg){
-  printf("Error: (%s) => %s \n", where, msg);
+  printf("Client Error: (%s) => %s \n", where, msg);
   exit(EXIT_FAILURE); //Exit with a failure message [EXIT_FAILURE is similar to using 1]
 }
 
